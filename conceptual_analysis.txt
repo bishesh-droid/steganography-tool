@@ -1,0 +1,112 @@
+# Conceptual Analysis for Steganography Tool
+
+## 1. Steganography Technique: Least Significant Bit (LSB) for Images
+
+### Principle
+The LSB technique is a common method for embedding data within digital images. It works by replacing the least significant bits of the pixel values with the bits of the secret message. Since the LSBs contribute minimally to the overall color of a pixel, modifying them typically results in changes that are imperceptible to the human eye.
+
+### Embedding Process
+1.  **Data Preparation:** The secret message, after being encrypted, is converted into a binary stream (a sequence of 0s and 1s).
+2.  **Capacity Check:** Before embedding, the tool calculates the maximum amount of data that can be hidden in the cover image. This is determined by the image dimensions and the number of LSBs per color channel used for embedding. If the message size exceeds the capacity, an error is raised.
+3.  **Header Embedding:** To facilitate extraction, a small header containing the length of the hidden message is embedded first. This allows the extractor to know exactly how many bits to read before stopping.
+4.  **Pixel Iteration:** The tool iterates through the pixels of the cover image, typically in a sequential manner (e.g., row by row, pixel by pixel).
+5.  **LSB Replacement:** For each bit of the secret message, the least significant bit of a selected color channel (Red, Green, or Blue) of a pixel is replaced with that message bit. For example, if we use 1 LSB per channel, each pixel can hide 3 bits (one in R, one in G, one in B).
+    *   To replace the LSB of a byte `P` with a message bit `M`: `P = (P & 0xFE) | M`. (Clears the LSB of P and then sets it to M).
+6.  **Stego Image Creation:** After all message bits are embedded, a new image (the stego image) is created with the modified pixel data.
+
+### Extraction Process
+1.  **Pixel Iteration:** The tool iterates through the pixels of the stego image in the same order as during embedding.
+2.  **LSB Retrieval:** For each selected color channel of a pixel, its LSB is extracted.
+    *   To get the LSB of a byte `P`: `M = P & 0x01`.
+3.  **Binary Stream Reconstruction:** The extracted LSBs are concatenated to form a binary stream.
+4.  **Header Extraction:** The initial bits of the stream are interpreted as the message length header.
+5.  **Message Reconstruction:** Based on the extracted length, the tool reads the appropriate number of bits from the binary stream to reconstruct the encrypted secret message.
+6.  **Data Conversion:** The binary stream is converted back into its original byte representation.
+
+## 2. Encryption and Decryption
+
+### Algorithm
+*   **AES (Advanced Encryption Standard):** A symmetric block cipher widely used for its security and efficiency.
+*   **CBC (Cipher Block Chaining) Mode:** Used to ensure that identical plaintext blocks produce different ciphertext blocks, adding an extra layer of security by chaining the encryption of each block to the previous one.
+
+### Key Derivation
+*   **PBKDF2 (Password-Based Key Derivation Function 2):** A function used to stretch a password into a strong cryptographic key. This is crucial for security as it makes brute-force and dictionary attacks against the password computationally expensive.
+    *   **Salt:** A randomly generated value used with the password in PBKDF2. The salt ensures that even if two users have the same password, their derived keys will be different, and pre-computed rainbow tables cannot be used. The salt must be stored with the ciphertext (or embedded in the image) for decryption.
+    *   **Iterations:** A high number of iterations (e.g., 100,000 or more) makes PBKDF2 computationally intensive, further strengthening the key derivation process.
+
+### Encryption Process
+1.  **Generate Salt:** A unique, random salt is generated for each encryption operation.
+2.  **Derive Key:** The user-provided password and the generated salt are fed into PBKDF2 to derive a fixed-length AES encryption key.
+3.  **Generate IV:** A random Initialization Vector (IV) is generated. The IV is essential for CBC mode and must be unique for each encryption. It does not need to be secret but must be transmitted with the ciphertext.
+4.  **Encrypt Message:** The plaintext secret message is padded (if necessary, to match AES block size) and then encrypted using the derived AES key and the IV in CBC mode.
+5.  **Payload Assembly:** The salt, IV, and the resulting ciphertext are concatenated into a single byte string. This combined payload is what gets embedded into the image.
+
+### Decryption Process
+1.  **Extract Payload:** The combined payload (salt, IV, ciphertext) is extracted from the stego image.
+2.  **Separate Components:** The salt, IV, and ciphertext are separated from the payload.
+3.  **Derive Key:** The user-provided password and the extracted salt are used with PBKDF2 to derive the same AES key that was used for encryption.
+4.  **Decrypt Message:** The ciphertext is decrypted using the derived AES key and the extracted IV in CBC mode.
+5.  **Remove Padding:** Any padding added during encryption is removed to reveal the original plaintext secret message.
+
+## 3. Supported File Formats
+
+*   **PNG (Portable Network Graphics):** A lossless image compression format. Ideal for LSB steganography because it preserves all pixel data without introducing compression artifacts that could corrupt the hidden message.
+*   **BMP (Bitmap):** An uncompressed image format. Also suitable for LSB steganography as it stores raw pixel data, ensuring no loss of information during embedding.
+*   **JPEG (Joint Photographic Experts Group):** *Not suitable* for LSB steganography. JPEG uses a lossy compression algorithm that discards some image data to achieve smaller file sizes. This loss of data would almost certainly destroy the hidden message.
+
+## 4. Overall Workflow
+
+### Embedding
+1.  User inputs: `cover_image_path`, `output_image_path`, `secret_message`, `password`.
+2.  `encryption.py`:
+    *   Generates a random `salt`.
+    *   Derives an AES `key` from `password` and `salt` using PBKDF2.
+    *   Generates a random `IV`.
+    *   Encrypts `secret_message` using `key` and `IV` (AES-256 CBC).
+    *   Returns the combined `salt + IV + ciphertext`.
+3.  `image_steganography.py`:
+    *   Takes the `cover_image_path` and the encrypted `payload` (`salt + IV + ciphertext`).
+    *   Checks if the `cover_image` has sufficient capacity for the `payload`.
+    *   Embeds the `payload` (including its length as a header) into the LSBs of the `cover_image`'s pixels.
+    *   Saves the resulting `stego_image` to `output_image_path`.
+
+### Extraction
+1.  User inputs: `stego_image_path`, `password`.
+2.  `image_steganography.py`:
+    *   Takes the `stego_image_path`.
+    *   Extracts the embedded `payload` (including its length header) from the LSBs of the `stego_image`'s pixels.
+    *   Returns the `payload` (`salt + IV + ciphertext`).
+3.  `encryption.py`:
+    *   Takes the extracted `payload` and `password`.
+    *   Separates `salt`, `IV`, and `ciphertext` from the `payload`.
+    *   Derives the AES `key` from `password` and `salt` using PBKDF2.
+    *   Decrypts `ciphertext` using `key` and `IV` (AES-256 CBC).
+    *   Returns the original `secret_message`.
+
+## 5. Error Handling
+
+*   **Insufficient Capacity:** If the `secret_message` (plus encryption overhead) is too large to be hidden in the `cover_image`, the tool will raise an error.
+*   **Invalid File Paths:** Checks for the existence and accessibility of input image files.
+*   **Unsupported Image Formats:** Ensures that only PNG or BMP files are used for steganography.
+*   **Incorrect Password:** If the wrong password is provided during extraction, decryption will fail, likely resulting in corrupted or unintelligible output, which the tool should handle gracefully (e.g., by indicating decryption failure).
+*   **Corrupted Stego Image:** If the stego image has been tampered with, extraction or decryption might fail.
+
+## 6. CLI Design
+
+The command-line interface will be built using `argparse` for a user-friendly experience.
+
+*   **`embed` command:**
+    ```bash
+    python -m steganography_tool.cli embed <input_image_path> <output_image_path> <message_to_hide> --password <your_password>
+    ```
+    *   `input_image_path`: Path to the cover image (PNG or BMP).
+    *   `output_image_path`: Path where the stego image will be saved.
+    *   `message_to_hide`: The secret text message to embed.
+    *   `--password`: The password for encrypting the message.
+
+*   **`extract` command:**
+    ```bash
+    python -m steganography_tool.cli extract <stego_image_path> --password <your_password>
+    ```
+    *   `stego_image_path`: Path to the image containing the hidden message.
+    *   `--password`: The password for decrypting the message.
