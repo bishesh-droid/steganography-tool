@@ -26,10 +26,10 @@ class TestEncryption(unittest.TestCase):
 
     def test_decrypt_with_corrupted_payload(self):
         encrypted_payload = encrypt_message(self.message, self.password)
-        # Corrupt a byte in the ciphertext
+        # Corrupt the last byte of the ciphertext to reliably break PKCS7 padding
         corrupted_payload = bytearray(encrypted_payload)
-        corrupted_payload[AES_BLOCK_SIZE * 2 + 5] ^= 0x01 # Corrupt a byte in ciphertext
-        
+        corrupted_payload[-1] ^= 0x01
+
         with self.assertRaises(ValueError) as cm:
             decrypt_message(bytes(corrupted_payload), self.password)
         self.assertIn("Incorrect password or corrupted data", str(cm.exception))
